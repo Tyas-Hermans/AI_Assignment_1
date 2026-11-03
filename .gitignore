@@ -13,5 +13,10 @@ env/
 .idea/
 .vscode/
 
+# Generated outputs (written to the CWD by run.py)
+/plan.json
+/statistics.txt
+/out/
+
 # OS
 .DS_Store
