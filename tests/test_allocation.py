@@ -161,3 +161,57 @@ def test_capability_mismatch_leaves_incident_unassigned():
         [inc_a], ["R2"], {"R2": "P2"}, {"R2": r2}, now=0.0, routes=routes
     )
     assert choice == {}
+
+
+# --------------------------------------------------------------------------- #
+# Wait-or-serve-late rule
+# --------------------------------------------------------------------------- #
+
+def test_incident_waits_for_busy_responder_that_can_be_on_time():
+    from ers.allocation import busy_responder_can_be_on_time
+
+    graph = _tiny_graph()
+    routes = _RouteCache(graph)
+    # A has deadline 5. At now = 3, the free R2 would arrive at 3 + 3 = 6 (late),
+    # while the busy R1 frees at 4 and arrives at 4 + 1 = 5 (on time) -> wait.
+    inc_a = Incident("A", "A", "High", 5, "cap", 0, 0)
+    r1 = Responder("R1", "t", "P1", frozenset({"cap"}), "Available", 0.0)
+    r2 = Responder("R2", "t", "P2", frozenset({"cap"}), "Available", 0.0)
+    responders = {"R1": r1, "R2": r2}
+    locations = {"R1": "P1", "R2": "P2"}
+    now = 3.0  # R2 would arrive at 6 > 5 (late)
+    free_at = {"R1": 4.0, "R2": 0.0}  # R1 busy until 4, then 4 + 1 = 5 <= 5
+
+    assert busy_responder_can_be_on_time(
+        inc_a, free_at, locations, responders, now, routes
+    )
+    # Because it waits, the late free responder R2 is not dispatched now.
+    choice = solve_event_csp(
+        [inc_a], ["R2"], locations, responders, now=now, routes=routes,
+        waiting_ids=frozenset({"A"}),
+    )
+    assert choice == {}
+
+
+def test_no_wait_when_nobody_can_be_on_time():
+    from ers.allocation import busy_responder_can_be_on_time
+
+    graph = _tiny_graph()
+    routes = _RouteCache(graph)
+    # Deadline 2: busy R1 frees at 4 and would arrive at 5 -> too late as well.
+    inc_a = Incident("A", "A", "High", 2, "cap", 0, 0)
+    r1 = Responder("R1", "t", "P1", frozenset({"cap"}), "Available", 0.0)
+    r2 = Responder("R2", "t", "P2", frozenset({"cap"}), "Available", 0.0)
+    responders = {"R1": r1, "R2": r2}
+    locations = {"R1": "P1", "R2": "P2"}
+    free_at = {"R1": 4.0, "R2": 0.0}
+
+    assert not busy_responder_can_be_on_time(
+        inc_a, free_at, locations, responders, 0.0, routes
+    )
+    # So the free R2 is sent immediately, arriving late (3 > 2).
+    choice = solve_event_csp(
+        [inc_a], ["R2"], locations, responders, now=0.0, routes=routes
+    )
+    assert choice["A"].responder_id == "R2"
+    assert not choice["A"].on_time

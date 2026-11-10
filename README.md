@@ -94,10 +94,14 @@ scenario folder
 5. Deadline feasibility is judged on **expected** travel times, so a plan can be
    feasible in expectation yet miss under an unlucky road outcome.
 6. **No look-ahead:** an incident exists for the planner only from its timestamp.
-7. **Missed-deadline policy: serve late.** The deadline is a soft constraint:
-   if no capable responder can arrive in time, the best one is still dispatched
-   (on-time options are always preferred). An incident is only left unhandled
-   if no capable responder can reach it at all.
+7. **Missed-deadline policy: wait if on time is still possible, otherwise
+   serve late.** The deadline is a soft constraint. If no free responder can
+   arrive in time but a *busy* one could still make it after it becomes free,
+   the incident waits for it. If nobody can make the deadline any more, the
+   best free responder is dispatched immediately and arrives late. An incident
+   is only left unhandled if no capable responder can reach it at all.
+8. A Busy responder departs from its `start_location` once
+   `time_until_available` has passed.
 
 ## Known limitations
 
@@ -105,11 +109,12 @@ scenario folder
   whole incident stream.
 - Road status and traffic penalties are combined by multiplying two independent
   factors — a defensible but not derived modelling choice.
-- Serving late is myopic: a responder sent to a late incident is busy when a
-  later incident (which it could have reached on time) appears. With no
-  look-ahead the planner cannot trade these off; in Scenario 3 this lowers the
-  on-time count compared to a skip policy (8 vs 11) while serving all 20
-  incidents instead of 11.
+- Serving late is still myopic: a responder sent to a hopeless (late) incident
+  is busy when a later incident it could have reached on time appears. The
+  wait rule only looks at responders that are busy *now*, not at incidents that
+  have not appeared yet. Deadlines met on Scenario 1/2/3: skip policy 4/3/11,
+  plain serve-late 4/4/8, current wait-or-serve-late 4/4/9 (all incidents
+  served).
 
 See `IMPLEMENTATION_NOTES.md` for the full reasoning, per-batch, including a bug
 the validator caught during development.

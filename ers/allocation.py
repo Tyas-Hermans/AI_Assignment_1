@@ -24,10 +24,23 @@ Two layers:
    served priority, priority served *on time*, total lateness (lower is
    better), total response time (lower is better).
 
-Policy for incidents no free, capable responder can reach in time: **serve
-late** rather than skip — a missed deadline still needs a responder. An
-incident ends unhandled only if no capable responder can ever reach it (no
-matching capability, or every route is blocked).
+Policy for incidents no free, capable responder can reach in time: **wait if
+on time is still possible, otherwise serve late.**
+
+- *Wait:* if a responder that is busy right now could still arrive on time
+  after it becomes free (its free time + route time ≤ deadline), the incident
+  only accepts on-time responders at this moment. It stays open and is
+  reconsidered at the next decision moment (e.g. when that responder frees).
+  This keeps free responders available for incidents they can reach on time,
+  instead of tying them up on a late job.
+- *Serve late:* if no responder — free or busy — can still make the deadline,
+  the best free one is dispatched immediately; waiting would only make the
+  arrival later.
+
+This uses only what is known at time ``now`` (current busy times and
+locations), so the no-look-ahead rule still holds. An incident ends unhandled
+only if no capable responder can ever reach it (no matching capability, or
+every route is blocked).
 """
 
 from __future__ import annotations
@@ -109,13 +122,15 @@ def _candidates_for_incident(
     responders_by_id: Dict[str, Responder],
     now: float,
     routes: _RouteCache,
+    on_time_only: bool = False,
 ) -> List[_Candidate]:
     """Feasible responders for one incident at time ``now``.
 
     A responder is feasible if it has the required capability and a route exists
     to the incident. Arriving after the deadline does *not* exclude it (soft
-    constraint); its lateness is recorded instead. Ordered on-time first, then
-    by shortest route.
+    constraint); its lateness is recorded instead — unless ``on_time_only`` is
+    set, which is used when the incident should wait for a busy responder that
+    can still be on time. Ordered on-time first, then by shortest route.
     """
     out: List[_Candidate] = []
     for rid in free_responder_ids:
@@ -128,6 +143,8 @@ def _candidates_for_incident(
         path, travel = route
         arrival = now + travel
         lateness = max(0.0, arrival - incident.deadline)
+        if on_time_only and lateness > 1e-9:
+            continue  # this incident waits for an on-time responder instead
         out.append(_Candidate(rid, path, travel, arrival, lateness))
     # On-time candidates first, then shortest response.
     out.sort(key=lambda c: (not c.on_time, c.travel_time))
@@ -141,8 +158,12 @@ def solve_event_csp(
     responders_by_id: Dict[str, Responder],
     now: float,
     routes: _RouteCache,
+    waiting_ids: frozenset = frozenset(),
 ) -> Dict[str, _Candidate]:
     """Backtracking CSP: choose responders for the open incidents at time ``now``.
+
+    ``waiting_ids`` are incidents that may only take an on-time responder this
+    round (a busy responder could still reach them on time later).
 
     Returns a mapping ``incident_id -> chosen _Candidate`` for the incidents that
     get served this round. Incidents left out are simply not in the mapping.
@@ -151,7 +172,8 @@ def solve_event_csp(
     # will prune responders from these as the search assigns them.
     domains: Dict[str, List[_Candidate]] = {
         inc.id: _candidates_for_incident(
-            inc, free_responder_ids, locations, responders_by_id, now, routes
+            inc, free_responder_ids, locations, responders_by_id, now, routes,
+            on_time_only=inc.id in waiting_ids,
         )
         for inc in open_incidents
     }
@@ -210,6 +232,32 @@ def solve_event_csp(
     return best_choice
 
 
+def busy_responder_can_be_on_time(
+    incident: Incident,
+    free_at: Dict[str, float],
+    locations: Dict[str, str],
+    responders_by_id: Dict[str, Responder],
+    now: float,
+    routes: _RouteCache,
+) -> bool:
+    """True if a currently busy, capable responder could still arrive on time.
+
+    For each responder that is busy at ``now`` we know when it becomes free and
+    where it will be (the location of its current job). If leaving from there at
+    that time still reaches the incident by its deadline, the incident is worth
+    waiting for. Uses only information known at ``now`` (no look-ahead).
+    """
+    for rid, t_free in free_at.items():
+        if t_free <= now:
+            continue  # free responders are handled by the CSP itself
+        if incident.required_capability not in responders_by_id[rid].capabilities:
+            continue
+        route = routes.route(locations[rid], incident.location)
+        if route is not None and t_free + route[1] <= incident.deadline + 1e-9:
+            return True
+    return False
+
+
 def run_simulation(scenario: Scenario, graph: PlanningGraph) -> AllocationResult:
     """Event-driven allocation over the whole incident stream."""
     responders_by_id = {r.id: r for r in scenario.responders}
@@ -253,8 +301,20 @@ def run_simulation(scenario: Scenario, graph: PlanningGraph) -> AllocationResult
         if not free_responder_ids:
             continue
 
+        # Incidents that should wait: a busy responder can still be on time.
+        # Waiting is safe because that responder's free-up time is already a
+        # decision moment, so the incident will be reconsidered then.
+        waiting_ids = frozenset(
+            inc.id
+            for inc in open_incidents
+            if busy_responder_can_be_on_time(
+                inc, free_at, locations, responders_by_id, now, routes
+            )
+        )
+
         choice = solve_event_csp(
-            open_incidents, free_responder_ids, locations, responders_by_id, now, routes
+            open_incidents, free_responder_ids, locations, responders_by_id, now,
+            routes, waiting_ids,
         )
 
         for iid, cand in choice.items():

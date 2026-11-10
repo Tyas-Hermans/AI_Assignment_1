@@ -445,3 +445,38 @@ responders sent to already-late incidents are busy when later incidents appear
 that they could have reached in time. Without look-ahead the planner cannot
 anticipate this. The average response time also rises because late (long)
 responses are now included.
+
+---
+
+## Change: wait if on time is still possible, otherwise serve late
+
+**Why.** With plain serve-late, a free responder was sent to an incident it
+would reach late, even when a busy responder could still have reached that
+incident on time after finishing. Free responders were then tied up on late
+jobs and missed later incidents they could have reached on time
+(Scenario 3: 8 on time vs 11 under the skip policy).
+
+**Rejected first idea.** Swapping the CSP score so on-time arrivals rank above
+the number served changed nothing on any scenario: within one decision moment
+that trade-off almost never occurs; the loss happens *across* moments.
+
+**Rejected second idea.** Always waiting until an incident's deadline has
+passed before serving it late gave 11/20 on time in Scenario 3, but delayed
+hopeless incidents for nothing (Scenario 2 I1: arrival 56 s → 111 s) and lost an
+on-time arrival in Scenario 2 (4 → 3).
+
+**What changed.** `allocation.py`: `busy_responder_can_be_on_time()` checks,
+using only current knowledge, whether a busy capable responder could arrive by
+the deadline after it frees (free time + route time). Such incidents are put in
+`waiting_ids` and may only take *on-time* responders at this moment; they are
+reconsidered at the next decision moment (the busy responder's free-up time is
+already an event). If no responder can make the deadline, the incident is served
+late immediately as before. Two unit tests added (wait case, no-wait case).
+
+**Results (all VALID).**
+
+| Scenario | Handled | Responders used | Avg response (s) | Deadlines met | Unhandled |
+|---|---|---|---|---|---|
+| 1 | 7/7 | 4 | 109.9 | 57.1% (4/7) | 0 |
+| 2 | 12/12 | 9 | 41.2 | 33.3% (4/12) | 0 |
+| 3 | 20/20 | 9 | 1647.5 | 45.0% (9/20) | 0 |
