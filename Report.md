@@ -1,6 +1,6 @@
 # Emergency Response System — AI Practicum Assignment 1
 
-**Author:** TODO: full name, student number
+**Author:** Tyas Hermans, 20242017
 **Course:** Artificial Intelligence Practicum — University of Antwerp
 **Date:** 12 November 2026
 **GitHub repository:** <https://github.com/Tyas-Hermans/AI_Assignment_1>
@@ -77,8 +77,7 @@ step-by-step implementation with explanations, so that I could understand and de
 code.
 
 I tested the scenarios and checked whether I liked the outcome and whether it was correct.
-The first time, I did not like it: the system skipped incidents whose deadline could no
-longer be met. That is why I sent this follow-up prompt:
+ I tried improving the scenario's so i sent a second prompt
 
 ```text
 - in the statistics van de scenarios staat dat er 100% van de deadlines let zijn maar ook unhandled incidents is meer dan 0                                       
@@ -107,8 +106,6 @@ rule described in section 1.
   preferred over a late one; an incident waits when a busy responder can still be on time,
   and is served late immediately when nobody can.
 
-TODO: run `pip install -r requirements.txt && pytest -q` and fill in the real count
-(expected: 47 passed).
 
 **Plan validation (`ers/validator.py`).** The validator replays `plan.json` in order of
 departure time. It checks that:
